@@ -1,0 +1,53 @@
+pipelines:
+  branches:
+    main:
+      - step:
+          name: Generate env file
+          deployment: Staging
+          script:
+            - echo "Generating .env file"
+            - echo "FOO=$BAR" >> .env
+          artifacts:
+            - .env
+
+      - step:
+          name: Build
+          size: 2x
+          image: node:latest
+          script:
+            - npm install --legacy-peer-deps
+            - npm run build
+          artifacts:
+            - dist/**
+
+      - step:
+          name: Deploy
+          script:
+            - pipe: atlassian/rsync-deploy:0.12.0
+              variables:
+                USER: 'root'
+                SERVER: '164.92.88.138'
+                REMOTE_PATH: '/var/www/quantillium/dashboard'
+                LOCAL_PATH: 'dist/**'
+                EXTRA_ARGS: 
+                  - '-avzL'
+                DELETE_FLAG: 'false'
+            - pipe: atlassian/rsync-deploy:0.12.0
+              variables:
+                USER: 'root'
+                SERVER: '164.92.88.138'
+                REMOTE_PATH: '/var/www/quantillium/proxy'
+                LOCAL_PATH: 'proxy/**'
+                EXTRA_ARGS: 
+                  - '-avzL'
+                DELETE_FLAG: 'false'
+            - pipe: atlassian/ssh-run:0.4.1
+              variables:
+                SSH_USER: 'root'
+                SERVER: '164.92.88.138'
+                COMMAND: |
+                  source ~/.nvm/nvm.sh || { echo "NVM not installed on the server."; exit 1; }
+                  nvm use 23 || { echo "Cannot change node version."; exit 1; }
+                  cd /var/www/quantillium/proxy || { echo "Failed to open project folder"; exit 1; }
+                  npm install --no-dev || { echo "Failed to install deps"; exit 1; }
+                  pm2 restart quantillium-proxy || pm2 start "npm run start" --name quantillium-proxy || { echo "Failed to restart app instance"; exit 1; }
